@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Virtual Remote</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #111;
+      --surface: #1e1e1e;
+      --surface2: #2a2a2a;
+      --accent: #4a9eff;
+      --text: #eee;
+      --muted: #666;
+      --radius: 12px;
+      --btn-size: 56px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #222;
+      background: var(--surface);
+    }
+    .tab {
+      flex: 1;
+      padding: 0.85rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.9rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.15s;
+    }
+    .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
+
+    /* ── Panels ── */
+    .panel { display: none; flex: 1; min-height: 0; padding: 1.25rem; flex-direction: column; align-items: center; gap: 1rem; overflow-y: auto; }
+    .panel.active { display: flex; }
+
+    /* ── Trackpad panel ── */
+    #tab-trackpad { padding: 0.5rem; gap: 0.5rem; overflow: hidden; }
+
+    /* ── Generic button ── */
+    .btn {
+      background: var(--surface2);
+      border: none;
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 1rem;
+      width: var(--btn-size);
+      height: var(--btn-size);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, transform 0.08s;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .btn:active { background: #3a3a3a; transform: scale(0.93); }
+    .btn.wide  { width: auto; padding: 0 1.25rem; }
+    .btn.large { width: 72px; height: 72px; font-size: 1.4rem; background: var(--accent); color: #000; }
+    .btn.large:active { background: #3080cc; }
+
+    /* ── Section label ── */
+    .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; align-self: flex-start; }
+
+    /* ── Row / grid helpers ── */
+    .row     { display: flex; align-items: center; gap: 0.6rem; }
+
+    /* ── D-pad ── */
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, var(--btn-size));
+      grid-template-rows: repeat(3, var(--btn-size));
+      gap: 4px;
+    }
+    .dpad .ok { grid-column: 2; grid-row: 2; background: var(--accent); color: #000; font-weight: 600; }
+
+    /* ── Trackpad surface + overlay ── */
+    #trackpad-wrap {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+    }
+
+    #trackpad {
+      width: 100%;
+      height: 100%;
+      background: var(--surface2);
+      border-radius: 16px;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    /* Keyboard toggle button — floats over trackpad */
+    #keyboardBtn {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      z-index: 2;
+      font-size: 1.2rem;
+      background: rgba(42, 42, 42, 0.85);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border-radius: var(--radius);
+    }
+    #keyboardBtn.active {
+      background: var(--accent);
+      color: #000;
+    }
+
+    /* Hidden textarea positioned under the keyboard button so iOS
+       opens the keyboard when it receives focus (must be in viewport). */
+    #hiddenInput {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      width: var(--btn-size);
+      height: var(--btn-size);
+      z-index: 1;
+      opacity: 0;
+      border: none;
+      outline: none;
+      resize: none;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      font-size: 16px; /* prevent iOS auto-zoom */
+      padding: 0;
+    }
+
+    .mouse-btns { display: flex; gap: 0.5rem; width: 100%; flex-shrink: 0; }
+    .mouse-btns .btn { flex: 1; height: 48px; font-size: 0.8rem; }
+
+    /* ── Status dot ── */
+    #status {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #f55;
+      margin-left: auto;
+      margin-right: 1rem;
+      align-self: center;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    #status.connected { background: #4c4; }
+
+    .tabs-row { display: flex; align-items: center; background: var(--surface); border-bottom: 1px solid #222; flex-shrink: 0; }
+    .tabs-row .tabs { border: none; flex: 1; }
+  </style>
+</head>
+<body>
+
+  <div class="tabs-row">
+    <div class="tabs">
+      <button class="tab active" data-tab="remote">Remote</button>
+      <button class="tab" data-tab="trackpad">Mouse</button>
+    </div>
+    <div id="status" title="WebSocket status"></div>
+  </div>
+
+  <!-- ══════════════ REMOTE PANEL ══════════════ -->
+  <div class="panel active" id="tab-remote">
+
+    <span class="label">Volume</span>
+    <div class="row">
+      <button class="btn" data-action="press" data-button="vol_down">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19"/>
+          <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+        </svg>
+      </button>
+      <button class="btn" data-action="press" data-button="mute">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19"/>
+          <line x1="23" y1="9" x2="17" y2="15"/>
+          <line x1="17" y1="9" x2="23" y2="15"/>
+        </svg>
+      </button>
+      <button class="btn" data-action="press" data-button="vol_up">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19"/>
+          <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+          <path d="M19.5 5.5a9 9 0 0 1 0 13"/>
+        </svg>
+      </button>
+    </div>
+
+    <span class="label">Playback</span>
+    <div class="row">
+      <button class="btn" data-action="press" data-button="prev">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <polygon points="19 20 9 12 19 4"/>
+          <rect x="5" y="4" width="2" height="16"/>
+        </svg>
+      </button>
+      <button class="btn large" data-action="press" data-button="play_pause">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+          <rect x="4" y="5" width="3" height="14"/>
+          <rect x="9" y="5" width="3" height="14"/>
+          <polygon points="15 5 22 12 15 19"/>
+        </svg>
+      </button>
+      <button class="btn" data-action="press" data-button="next">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <polygon points="5 4 15 12 5 20"/>
+          <rect x="17" y="4" width="2" height="16"/>
+        </svg>
+      </button>
+    </div>
+
+    <span class="label">Navigation</span>
+    <div class="dpad">
+      <div></div>
+      <button class="btn" data-action="press" data-button="up">▲</button>
+      <div></div>
+      <button class="btn" data-action="press" data-button="left">◀</button>
+      <button class="btn ok" data-action="press" data-button="ok">OK</button>
+      <button class="btn" data-action="press" data-button="right">▶</button>
+      <div></div>
+      <button class="btn" data-action="press" data-button="down">▼</button>
+      <div></div>
+    </div>
+
+    <div class="row">
+      <button class="btn wide" data-action="press" data-button="back">Back</button>
+      <button class="btn wide" data-action="press" data-button="home">Home</button>
+      <button class="btn wide" data-action="press" data-button="menu">Menu</button>
+    </div>
+
+  </div>
+
+  <!-- ══════════════ TRACKPAD PANEL ══════════════ -->
+  <div class="panel" id="tab-trackpad">
+    <div id="trackpad-wrap">
+      <div id="trackpad"></div>
+      <!-- Hidden textarea positioned under the keyboard button -->
+      <textarea id="hiddenInput"
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        tabindex="-1" aria-hidden="true"></textarea>
+      <button id="keyboardBtn" class="btn" title="Toggle keyboard">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="6" width="20" height="12" rx="2"/>
+          <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>
+        </svg>
+      </button>
+    </div>
+    <div class="mouse-btns">
+      <button class="btn" data-action="mouse_click" data-button="left">L click</button>
+      <button class="btn" data-action="scroll" data-dx="0" data-dy="3">Scroll ▲</button>
+      <button class="btn" data-action="scroll" data-dx="0" data-dy="-3">Scroll ▼</button>
+      <button class="btn" data-action="mouse_click" data-button="right">R click</button>
+    </div>
+  </div>
+
+  <script>
+    // ── WebSocket ──────────────────────────────────────────────
+    let ws;
+    let reconnectTimer = null;
+    const statusDot = document.getElementById('status');
+
+    function connect() {
+      clearTimeout(reconnectTimer);
+      // Detach handlers from any existing socket so its onclose doesn't
+      // schedule another reconnect after we replace it.
+      if (ws) {
+        ws.onopen = ws.onclose = null;
+        if (ws.readyState !== WebSocket.CLOSED) ws.close();
+      }
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onopen  = () => statusDot.classList.add('connected');
+      ws.onclose = () => {
+        statusDot.classList.remove('connected');
+        reconnectTimer = setTimeout(connect, 500);
+      };
+    }
+
+    // Force a fresh connection whenever the page becomes visible again
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') connect();
+    });
+    window.addEventListener('online', connect);
+
+    function send(msg) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    }
+
+    connect();
+
+    // ── Tabs ───────────────────────────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ── Remote buttons ─────────────────────────────────────────
+    document.querySelectorAll('[data-action="press"]').forEach(btn => {
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        send({ action: 'press', button: btn.dataset.button });
+      });
+    });
+
+    document.querySelectorAll('[data-action="mouse_click"]').forEach(btn => {
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        send({ action: 'mouse_click', button: btn.dataset.button });
+      });
+    });
+
+    document.querySelectorAll('[data-action="scroll"]').forEach(btn => {
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        send({ action: 'scroll', dx: Number(btn.dataset.dx), dy: Number(btn.dataset.dy) });
+      });
+    });
+
+    // ── Trackpad ───────────────────────────────────────────────
+    const trackpad    = document.getElementById('trackpad');
+    const keyboardBtn = document.getElementById('keyboardBtn');
+    const hiddenInput = document.getElementById('hiddenInput');
+
+    const SENSITIVITY   = 1.5;
+    const MOVE_THROTTLE = 16;    // ms
+    const SCROLL_SCALE  = 0.08;  // trackpad px → scroll units
+
+    let lastX = null, lastY = null;
+    let lastSentAt = 0;
+    let tapStartTime = 0;
+    let tapMoved = false;
+    let touchCount = 0;
+    let scrollMidY = null;
+    let scrollAccum = 0;
+
+    trackpad.addEventListener('touchstart', e => {
+      e.preventDefault();
+      touchCount = e.touches.length;
+      tapMoved = false;
+      tapStartTime = Date.now();
+
+      if (e.touches.length === 1) {
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        scrollMidY = null;
+        scrollAccum = 0;
+      } else if (e.touches.length === 2) {
+        scrollMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        scrollAccum = 0;
+        lastX = null;
+      }
+    }, { passive: false });
+
+    trackpad.addEventListener('touchmove', e => {
+      e.preventDefault();
+      tapMoved = true;
+
+      if (e.touches.length === 2) {
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        if (scrollMidY !== null) {
+          scrollAccum += (midY - scrollMidY) * SCROLL_SCALE;
+          const units = Math.trunc(scrollAccum);
+          if (units !== 0) {
+            send({ action: 'scroll', dx: 0, dy: units });
+            scrollAccum -= units;
+          }
+        }
+        scrollMidY = midY;
+        return;
+      }
+
+      if (e.touches.length !== 1 || lastX === null) return;
+      const now = Date.now();
+      const cx  = e.touches[0].clientX;
+      const cy  = e.touches[0].clientY;
+      const dx  = Math.round((cx - lastX) * SENSITIVITY);
+      const dy  = Math.round((cy - lastY) * SENSITIVITY);
+      if ((dx !== 0 || dy !== 0) && now - lastSentAt >= MOVE_THROTTLE) {
+        send({ action: 'mouse_move', dx, dy });
+        lastSentAt = now;
+      }
+      lastX = cx;
+      lastY = cy;
+    }, { passive: false });
+
+    trackpad.addEventListener('touchend', e => {
+      e.preventDefault();
+      const elapsed = Date.now() - tapStartTime;
+      if (!tapMoved && elapsed < 250) {
+        // Tap on trackpad: dismiss keyboard and send click
+        hiddenInput.blur();
+        send({ action: 'mouse_click', button: touchCount >= 2 ? 'right' : 'left' });
+      }
+      if (e.touches.length === 0) {
+        lastX = null; lastY = null;
+        scrollMidY = null; scrollAccum = 0;
+      }
+    }, { passive: false });
+
+    // ── Keyboard button ────────────────────────────────────────
+    keyboardBtn.addEventListener('touchstart', e => {
+      e.stopPropagation(); // don't let trackpad see this touch
+    }, { passive: true });
+
+    keyboardBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (document.activeElement === hiddenInput) {
+        hiddenInput.blur();
+      } else {
+        hiddenInput.focus();
+      }
+    });
+
+    hiddenInput.addEventListener('focus', () => keyboardBtn.classList.add('active'));
+    hiddenInput.addEventListener('blur',  () => {
+      keyboardBtn.classList.remove('active');
+      hiddenInput.value = '';
+    });
+
+    // ── Keyboard input ─────────────────────────────────────────
+    // Backspace: always via keydown (works even when field is empty)
+    hiddenInput.addEventListener('keydown', e => {
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        send({ action: 'press', button: 'backspace' });
+      }
+    });
+
+    // All other input: send and immediately clear the field
+    hiddenInput.addEventListener('input', () => {
+      const val = hiddenInput.value;
+      if (val) {
+        send({ action: 'type', text: val });
+        hiddenInput.value = '';
+      }
+    });
+  </script>
+</body>
+</html>

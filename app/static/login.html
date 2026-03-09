@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Virtual Remote — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+    }
+
+    .card {
+      background: #1e1e1e;
+      border-radius: 16px;
+      padding: 2rem;
+      width: min(320px, 90vw);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    h1 { font-size: 1.25rem; text-align: center; letter-spacing: 0.05em; }
+
+    .pin-display {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+
+    .pin-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #555;
+      background: transparent;
+      transition: background 0.15s;
+    }
+    .pin-dot.filled { background: #eee; border-color: #eee; }
+
+    .numpad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+    }
+
+    .numpad button {
+      background: #2a2a2a;
+      border: none;
+      border-radius: 10px;
+      color: #eee;
+      font-size: 1.4rem;
+      padding: 1rem;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: background 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .numpad button:active { background: #3a3a3a; }
+
+    .numpad .zero  { grid-column: 2; }
+    .numpad .clear { grid-column: 3; font-size: 1rem; color: #888; }
+
+    #error {
+      color: #f55;
+      font-size: 0.85rem;
+      text-align: center;
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Enter PIN</h1>
+    <div class="pin-display">
+      <div class="pin-dot" id="d0"></div>
+      <div class="pin-dot" id="d1"></div>
+      <div class="pin-dot" id="d2"></div>
+      <div class="pin-dot" id="d3"></div>
+    </div>
+    <div class="numpad" id="numpad">
+      <button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button>
+      <button data-n="4">4</button><button data-n="5">5</button><button data-n="6">6</button>
+      <button data-n="7">7</button><button data-n="8">8</button><button data-n="9">9</button>
+      <button class="zero" data-n="0">0</button>
+      <button class="clear" id="clearBtn">⌫</button>
+    </div>
+    <div id="error"></div>
+  </div>
+
+  <script>
+    let pin = '';
+
+    function updateDots() {
+      for (let i = 0; i < 4; i++) {
+        document.getElementById('d' + i).classList.toggle('filled', i < pin.length);
+      }
+    }
+
+    document.getElementById('numpad').addEventListener('click', e => {
+      const n = e.target.dataset.n;
+      if (n !== undefined && pin.length < 4) {
+        pin += n;
+        updateDots();
+        if (pin.length === 4) submit();
+      }
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      pin = pin.slice(0, -1);
+      updateDots();
+      document.getElementById('error').textContent = '';
+    });
+
+    async function submit() {
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      if (res.ok) {
+        location.reload();
+      } else {
+        document.getElementById('error').textContent = 'Wrong PIN. Try again.';
+        pin = '';
+        updateDots();
+      }
+    }
+  </script>
+</body>
+</html>

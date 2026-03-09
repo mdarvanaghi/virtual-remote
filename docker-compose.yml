@@ -1,0 +1,15 @@
+services:
+  remote:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    environment:
+      # Pass the host DISPLAY so pynput can reach the X server
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      # Allow pynput to connect to the host X session
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    # Needed so the container can send input events to the host
+    network_mode: host
+    restart: unless-stopped
