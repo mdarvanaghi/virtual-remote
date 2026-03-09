@@ -3,6 +3,7 @@ FROM python:3.12-slim
 # pynput needs X11 libs on Linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libx11-6 libxtst6 libxi6 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
